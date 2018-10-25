@@ -10,6 +10,8 @@ package rc6
 
 import (
 	"crypto/cipher"
+	"encoding/binary"
+	"math/bits"
 	"strconv"
 )
 
@@ -20,14 +22,6 @@ const (
 
 type rc6cipher struct {
 	rk [roundKeys]uint32
-}
-
-func rotl32(k uint32, rot uint32) uint32 {
-	return (k << rot) | (k >> (32 - rot))
-}
-
-func rotr32(k uint32, rot uint32) uint32 {
-	return (k >> rot) | (k << (32 - rot))
 }
 
 type KeySizeError int
@@ -48,7 +42,7 @@ func New(key []byte) (cipher.Block, error) {
 	var L [keyWords]uint32
 
 	for i := 0; i < keyWords; i++ {
-		L[i] = getUint32(key)
+		L[i] = binary.LittleEndian.Uint32(key[:4])
 		key = key[4:]
 	}
 
@@ -59,9 +53,9 @@ func New(key []byte) (cipher.Block, error) {
 	var i, j int
 
 	for k := 0; k < 3*roundKeys; k++ {
-		c.rk[i] = rotl32(c.rk[i]+(A+B), 3)
+		c.rk[i] = bits.RotateLeft32(c.rk[i]+(A+B), 3)
 		A = c.rk[i]
-		L[j] = rotl32(L[j]+(A+B), (A+B)&31)
+		L[j] = bits.RotateLeft32(L[j]+(A+B), int(A+B))
 		B = L[j]
 
 		i = (i + 1) % roundKeys
@@ -75,66 +69,53 @@ func (c *rc6cipher) BlockSize() int { return 16 }
 
 func (c *rc6cipher) Encrypt(dst, src []byte) {
 
-	A := getUint32(src)
-	B := getUint32(src[4:])
-	C := getUint32(src[8:])
-	D := getUint32(src[12:])
+	A := binary.LittleEndian.Uint32(src[:4])
+	B := binary.LittleEndian.Uint32(src[4:8])
+	C := binary.LittleEndian.Uint32(src[8:12])
+	D := binary.LittleEndian.Uint32(src[12:16])
 
 	B = B + c.rk[0]
 	D = D + c.rk[1]
 	for i := 1; i <= rounds; i++ {
-		t := rotl32(B*(2*B+1), 5)
-		u := rotl32(D*(2*D+1), 5)
-		A = rotl32((A^t), u&31) + c.rk[2*i]
-		C = rotl32((C^u), t&31) + c.rk[2*i+1]
+		t := bits.RotateLeft32(B*(2*B+1), 5)
+		u := bits.RotateLeft32(D*(2*D+1), 5)
+		A = bits.RotateLeft32((A^t), int(u)) + c.rk[2*i]
+		C = bits.RotateLeft32((C^u), int(t)) + c.rk[2*i+1]
 		A, B, C, D = B, C, D, A
 	}
 	A = A + c.rk[2*rounds+2]
 	C = C + c.rk[2*rounds+3]
 
-	putUint32(dst, A)
-	putUint32(dst[4:], B)
-	putUint32(dst[8:], C)
-	putUint32(dst[12:], D)
+	binary.LittleEndian.PutUint32(dst[:4], A)
+	binary.LittleEndian.PutUint32(dst[4:8], B)
+	binary.LittleEndian.PutUint32(dst[8:12], C)
+	binary.LittleEndian.PutUint32(dst[12:16], D)
 }
 
 func (c *rc6cipher) Decrypt(dst, src []byte) {
 
-	A := getUint32(src)
-	B := getUint32(src[4:])
-	C := getUint32(src[8:])
-	D := getUint32(src[12:])
+	A := binary.LittleEndian.Uint32(src[:4])
+	B := binary.LittleEndian.Uint32(src[4:8])
+	C := binary.LittleEndian.Uint32(src[8:12])
+	D := binary.LittleEndian.Uint32(src[12:16])
 
 	C = C - c.rk[2*rounds+3]
 	A = A - c.rk[2*rounds+2]
 
 	for i := rounds; i >= 1; i-- {
 		A, B, C, D = D, A, B, C
-		u := rotl32(D*(2*D+1), 5)
-		t := rotl32(B*(2*B+1), 5)
-		C = rotr32((C-c.rk[2*i+1]), t&31) ^ u
-		A = rotr32((A-c.rk[2*i]), u&31) ^ t
+		u := bits.RotateLeft32(D*(2*D+1), 5)
+		t := bits.RotateLeft32(B*(2*B+1), 5)
+		C = bits.RotateLeft32((C-c.rk[2*i+1]), -int(t)) ^ u
+		A = bits.RotateLeft32((A-c.rk[2*i]), -int(u)) ^ t
 	}
 	D = D - c.rk[1]
 	B = B - c.rk[0]
 
-	putUint32(dst, A)
-	putUint32(dst[4:], B)
-	putUint32(dst[8:], C)
-	putUint32(dst[12:], D)
-}
-
-// avoid pulling in encoding/binary
-
-func getUint32(b []byte) uint32 {
-	return uint32(b[0]) | uint32(b[1])<<8 | uint32(b[2])<<16 | uint32(b[3])<<24
-}
-
-func putUint32(b []byte, v uint32) {
-	b[0] = byte(v)
-	b[1] = byte(v >> 8)
-	b[2] = byte(v >> 16)
-	b[3] = byte(v >> 24)
+	binary.LittleEndian.PutUint32(dst[:4], A)
+	binary.LittleEndian.PutUint32(dst[4:8], B)
+	binary.LittleEndian.PutUint32(dst[8:12], C)
+	binary.LittleEndian.PutUint32(dst[12:16], D)
 }
 
 // skeytable computed from
