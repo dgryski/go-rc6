@@ -68,6 +68,8 @@ func New(key []byte) (cipher.Block, error) {
 func (c *rc6cipher) BlockSize() int { return 16 }
 
 func (c *rc6cipher) Encrypt(dst, src []byte) {
+	_ = dst[15]
+	_ = src[15]
 
 	A := binary.LittleEndian.Uint32(src[:4])
 	B := binary.LittleEndian.Uint32(src[4:8])

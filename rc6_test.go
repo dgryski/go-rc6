@@ -55,5 +55,12 @@ func TestRC6(t *testing.T) {
 		if !bytes.Equal(p[:], tst.plain) {
 			t.Errorf("decrypt failed:\ngot : % 02x\nwant: % 02x", p[:], tst.plain)
 		}
+
+		EncryptASM(c.(*rc6cipher), ct[:], tst.plain[:])
+
+		if !bytes.Equal(ct[:], tst.cipher) {
+			t.Errorf("encrypt asm failed:\ngot : % 02x\nwant: % 02x", ct[:], tst.cipher)
+		}
+
 	}
 }
